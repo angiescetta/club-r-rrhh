@@ -1,0 +1,365 @@
+---
+title: "Análisis Geo en R"
+author: "Angie Scetta"
+date: "17 de Octubre de 2020"
+output: html_document
+---
+
+```{r warning=FALSE, results="hide", error=FALSE, message=FALSE}
+#install.packages(tidyverse)
+#install.packages(sf)
+#install.packages(ggmap)
+#install.packages(leaflet)
+
+library(tidyverse)
+library(sf) #Manipulación de datos espaciales
+library(ggmap) #Descargar de la web mapas estáticos (para fondo)
+library(leaflet) #Desarrollar mapas interactivos
+```
+
+A continuación cargaremos con `st_read()` nuestro primer dataset espacial. En este caso descargamos de BA Data un **geoJSON con los barrios de CABA**:
+
+```{r warning=FALSE, results="hide", error=FALSE, message=FALSE}
+barrios_caba <- st_read("http://cdn.buenosaires.gob.ar/datosabiertos/datasets/barrios/barrios.geojson") %>%
+  select(barrio, comuna)
+```
+Revisemos que clase de archivo cargamos:
+
+```{r}
+class(barrios_caba)
+```
+
+Perfecto, tal como esperabamos, es un **sf** con un **dataframe** asociado. Veamos el encabezado como haríamos con cualquier dataset tradicional:
+
+```{r}
+head(barrios_caba)
+```
+
+Vemos que tiene alojada la geometría en el campo "geometry". Para poder visualizar la información de una forma más gráfica podemos utilizar `plot()` que nos genera mapas para cada una de las variables del dataset:
+
+```{r}
+plot(barrios_caba)
+```
+
+Ahora creemos nuestro primer mapa `ggplot()`. Para este tipo de dato vamos a tener que sumar una capa de `geom_sf()`:
+
+```{r}
+ggplot()+
+  geom_sf(data=barrios_caba, aes(fill=as.factor(comuna)), color="black", size=1) +
+  scale_fill_viridis_d() +
+  labs(title="Comunas",
+       subtitle="CABA",
+       fill="Comuna")
+```
+
+Bueno, este formato es una de los posibles para importar datos geo, pero también hay otras formas. Por ejemplo a partir de un dataset tradicional, transformando datos que no son geo pero que tienen una conexión con el territorio, es decir columnas con las coordenadas X e Y:
+
+En este caso vamos a utilizar un CSV con la ubicación exacta (X e Y) de los usos del suelo referentes a gastronomía y hotelería en la Ciudad. Este dataset fue generado a partir del dataset de Relevamiento de Usos del Suelo realizado en 2017 y publicado por el GCBA en BA Data: https://data.buenosaires.gob.ar/dataset/relevamiento-usos-suelo
+
+```{r warning=FALSE, results="hide", error=FALSE, message=FALSE}
+gastronomia_hoteleria <- read.csv("data/gastronomia_hoteleria.csv", encoding = 'UTF-8')
+```
+
+Tal como hicimos anteriormente, miremos que clase de dato es:
+
+```{r}
+class(gastronomia_hoteleria)
+```
+
+Efectivamente es un simple dataset, pero veamos que información contiene:
+
+```{r}
+head(gastronomia_hoteleria)
+```
+
+Vemos que tenemos **2 columnas de datos que nos permitiran territorializar la información: las coordenadas X e Y**. Pero, ¿Qué significan esas coordenadas? ¿Por qué son tan importantes?
+
+Bueno, como la base de datos es un CSV común y corriente, primero utilicemos nuestro amigo `ggplot()` pero esta vez junto a `geom_point()` para ver que forma tiene la data:
+
+```{r}
+ggplot()+
+  geom_point(data=gastronomia_hoteleria, aes(x=X, y=Y))
+```
+
+¿Ven algo? ¿Se parece a algo? Se ve un poco rara pero podemos detectar que tiene la forma de CABA (la que vimos más arriba en el mapita) ¿No?
+
+Pongamos el mapa de fondo a ver si mejora y usemos `geom_sf()` para el dataset geo y `geom_point()` para el dataset tradicional:
+
+```{r}
+ggplot()+
+  geom_sf(data=barrios_caba)+
+  geom_point(data=gastronomia_hoteleria, aes(x=X, y=Y), color="red")
+```
+
+Bien, ahora se ve mucho más claro que los puntos tienen la forma de CABA, pero todavía es muy difícil hacer una lectura de la información. No se entiende bien en que zona de la Ciudad se encuentra la mayor cantidad de locales gastronómicos y hoteles. Probemos con mapas de densidad de puntos:
+
+```{r}
+ggplot() +
+  geom_sf(data=barrios_caba)+
+  geom_bin2d(data = gastronomia_hoteleria, 
+             aes(x = X, y = Y), bins = 50) +
+  labs(title="Gastronomía y Hotelería en la Ciudad",
+       subtitle="Usos del Suelo 2017 - CABA",
+       x="",
+       y="",
+       caption= "Fuente de datos: https://data.buenosaires.gob.ar/",
+       fill="Cantidad")+
+  scale_fill_distiller(palette = "Spectral")
+```
+
+```{r}
+ggplot() +
+  geom_sf(data=barrios_caba) +
+  stat_density_2d(data = gastronomia_hoteleria, 
+                  aes(x = X, y = Y, 
+                      fill = stat(level)), alpha = 0.6, geom = "polygon") +
+  labs(title="Gastronomía y Hotelería en la Ciudad",
+       subtitle="Usos del Suelo 2017 - CABA",
+       x="",
+       y="",
+       caption= "Fuente de datos: https://data.buenosaires.gob.ar/",
+       fill="Nivel")+
+  scale_fill_distiller(palette = "Spectral")
+```
+
+Ahora sí, mucho más claro, ¿No? Se ve que la mayor concentración está en el microcentro porteño. Pero analicemos más, vayamos más al detalle. Hasta acá solo visualizamos la información pero aún no la pudimos manipular geográficamente. Para lograr esto y poder utilizar las funciones que trae el paquete `sf()`, es necesario que transformemos el dataset gastronomia_hoteleria a formato geo. Esto lo haremos con `st_as_sf()`:
+
+```{r}
+gastronomia_hoteleria_geo <- gastronomia_hoteleria %>%
+  st_as_sf(coords = c("X","Y"), crs = 4326)
+
+head(gastronomia_hoteleria_geo)
+```
+
+Ya tenemos la columna geometry, miremos la clase de dato:
+
+```{r}
+class(gastronomia_hoteleria_geo)
+```
+
+Listo, sf + dataframe. Era lo que queríamos.
+
+```{r message=FALSE, warning=FALSE}
+ggplot()+
+  geom_sf(data=barrios_caba) +
+  geom_sf(data=gastronomia_hoteleria_geo, color="red") +
+  labs(title="Gastronomía y Hotelería en la Ciudad",
+       subtitle="Usos del Suelo 2017 - CABA",
+       x="",
+       y="",
+       caption= "Fuente de datos: https://data.buenosaires.gob.ar/")
+```
+
+Usamos `geom_sf()` para ambos datos, hasta ahí ok, pero todavía el mapa parece igual al anterior.
+
+Empecemos con `st_join()` que nos ayudará a unir espacialmente ambos dataset:
+
+```{r message=FALSE, warning=FALSE}
+gastronomia_hoteleria_barrios <- st_join(gastronomia_hoteleria_geo, barrios_caba)
+
+head(gastronomia_hoteleria_barrios)
+```
+
+¿Notan la diferencia? Se agregaron 2 nuevas columnas a mis datos: el barrio y la comuna. Esto fue a partir del `st_join()`.
+
+```{r}
+ggplot()+
+  geom_sf(data=barrios_caba) +
+  geom_sf(data=gastronomia_hoteleria_barrios, aes(color=as.factor(comuna)))
+```
+
+Todavía sigue raro, nos falta pasarle la información a los barrios:
+
+```{r}
+gastronomia_hoteleria_barrios <- gastronomia_hoteleria_barrios %>%
+  group_by(barrio) %>%
+  summarise(cantidad=n()) %>%
+  st_set_geometry(NULL)
+```
+
+```{r}
+barrios_caba <- barrios_caba %>%
+  left_join(gastronomia_hoteleria_barrios, by="barrio")
+```
+
+Ahora si:
+
+```{r message=FALSE, warning=FALSE}
+ggplot()+
+  geom_sf(data=barrios_caba, aes(fill=cantidad)) +
+  labs(title="Gastronomía y Hotelería en la Ciudad",
+       subtitle="Usos del Suelo 2017 - CABA",
+       x="",
+       y="",
+       fill="Cantidad",
+       caption= "Fuente de datos: https://data.buenosaires.gob.ar/")
+```
+
+En el mapa se ve claramente como Palermo es el barrio donde predomina la gastronomía y hotelería, sin embargo, se nota que es el más grande de la Ciudad, entonces es obvio que va a ser el que más cantidad tiene no? Para que podamos sacar conclusiones correctamente es necesario calcular la relación entre cantidad y superficie. Para eso utilicemos `st_area()`, una función de `sf` que nos permite medir el área de los polígonos:
+
+```{r}
+barrios_caba <- barrios_caba %>%
+  mutate(superficie=st_area(geometry))
+```
+
+```{r}
+barrios_caba <- barrios_caba %>%
+  mutate(superficie_km2=round(as.numeric(superficie)/1000000, 2),
+         cant_km2=round(cantidad/superficie_km2, 0))
+```
+
+```{r message=FALSE, warning=FALSE}
+ggplot()+
+  geom_sf(data=barrios_caba, aes(fill=cant_km2)) +
+  geom_sf_text(data=barrios_caba, aes(label = barrio), size=1.5, colour = "white") +
+  labs(title="Gastronomía y Hotelería en la Ciudad",
+       subtitle="Usos del Suelo 2017 - CABA",
+       x="",
+       y="",
+       fill="cant/km2",
+       caption= "Fuente de datos: https://data.buenosaires.gob.ar/")
+```
+
+```{r message=FALSE, warning=FALSE}
+barrios_caba <- barrios_caba %>%
+  mutate(categoria=ifelse(cant_km2>mean(cant_km2),"MAYOR DENSIDAD","MENOR DENSIDAD"))
+
+ggplot()+
+  geom_sf(data=barrios_caba, aes(fill=categoria)) +
+  geom_sf_text(data=barrios_caba %>% filter(categoria=="MAYOR DENSIDAD"), aes(label = barrio), size=1.5, colour = "black") +
+  labs(title="Barrios de CABA según densidad de Gastronomía y Hotelería")
+```
+
+```{r message=FALSE, warning=FALSE}
+CABA <- get_stamenmap(bbox = make_bbox(gastronomia_hoteleria$X, gastronomia_hoteleria$Y), #Descargar mapa
+                      maptype = "toner",
+                      zoom=13)
+
+ggmap(CABA)+
+  geom_sf(data=barrios_caba, aes(fill=cant_km2), color=NA, alpha=0.8, inherit.aes = FALSE)+
+  geom_sf_text(data=barrios_caba, aes(label = barrio), size=2, colour = "black", inherit.aes = FALSE)+
+  scale_fill_viridis_c(direction=-1)
+```
+
+```{r message=FALSE, warning=FALSE}
+comunas_caba <- barrios_caba %>%
+  group_by(comuna) %>%
+  summarise(cantidad=sum(cantidad),
+            superficie_km2=sum(superficie_km2),
+            cant_km2=cantidad/superficie_km2)
+```
+
+```{r message=FALSE, warning=FALSE}
+ggmap(CABA)+
+  geom_sf(data=comunas_caba, aes(fill=cant_km2), color=NA, alpha=0.8, inherit.aes = FALSE)+
+  geom_sf_text(data=comunas_caba, aes(label = comuna), size=3.5, colour = "black", inherit.aes = FALSE)+
+  scale_fill_viridis_c(direction=-1)
+```
+
+```{r}
+paleta <- colorNumeric(
+  palette = "YlOrRd",
+  domain = barrios_caba$cant_km2)
+
+labels <- sprintf(
+  "<strong>%s</strong><br/>Gastronomía y Hotelería <br/>%g registros/km2",
+  barrios_caba$barrio, barrios_caba$cant_km2) %>% lapply(htmltools::HTML)
+
+leaflet(barrios_caba) %>%
+  addTiles() %>%
+addProviderTiles(providers$CartoDB) %>%
+addPolygons(color = "#444444",
+            weight = 1,
+            smoothFactor = 0.5,
+    fillOpacity = 0.65,
+    fillColor = ~colorNumeric("YlOrRd", barrios_caba$cant_km2)(cant_km2),
+    highlightOptions = highlightOptions(color = "white", weight = 2,
+      bringToFront = TRUE),
+     label = labels,
+  labelOptions = labelOptions(
+    style = list("font-weight" = "normal", padding = "2px 5px"),
+    textsize = "10px",
+    direction = "top"))%>%
+addLegend("bottomright", pal=paleta, values = ~cant_km2,
+    title = "Gastronomía y Hotelería",
+    labFormat = labelFormat(suffix = " registros/km2"),
+    opacity = 0.65)
+```
+
+```{r}
+centroide <- barrios_caba %>%
+  st_centroid()
+```
+
+```{r}
+ggplot()+
+  geom_sf(data=barrios_caba)+
+  geom_sf(data=centroide, aes(size=cantidad, color=cant_km2))+
+  scale_color_viridis_c(direction = -1)
+```
+
+intersectar con más datos de todo amba:
+
+```{r message=FALSE, warning=FALSE}
+gastronomia_hoteleria_geo <- gastronomia_hoteleria_geo %>%
+  st_intersection(filter(barrios_caba, barrio=="SAN NICOLAS"))
+```
+
+```{r message=FALSE, warning=FALSE}
+ggmap(CABA)+
+  geom_sf(data=gastronomia_hoteleria_geo, color="red", alpha=0.8, inherit.aes = FALSE)
+```
+
+```{r}
+manzanas_caba <- st_read("http://cdn.buenosaires.gob.ar/datosabiertos/datasets/manzanas/manzanas.geojson")
+```
+
+```{r message=FALSE, warning=FALSE}
+manzanas_caba <- manzanas_caba %>%
+  st_intersection(filter(barrios_caba, barrio=="SAN NICOLAS"))
+```
+
+```{r}
+ggplot()+
+  geom_sf(data=filter(barrios_caba, barrio=="SAN NICOLAS"))+
+  geom_sf(data=manzanas_caba)+
+  geom_sf(data=gastronomia_hoteleria_geo)
+```
+
+```{r message=FALSE, warning=FALSE}
+manzanas_caba <- manzanas_caba %>%
+  st_join(gastronomia_hoteleria_geo) %>%
+  group_by(FeatId1) %>%
+  summarise(cantidad=n())
+```
+
+```{r}
+paleta <- colorNumeric(
+  palette = "YlOrRd",
+  domain = manzanas_caba$cantidad)
+
+labels <- sprintf(
+  "<strong>%s</strong> <br/>%g registros",
+  "Gastronomia y Hoteleria", manzanas_caba$cantidad) %>% lapply(htmltools::HTML)
+
+leaflet(manzanas_caba) %>%
+  addTiles() %>%
+addProviderTiles(providers$CartoDB) %>%
+addPolygons(color = "#444444",
+            weight = 1,
+            smoothFactor = 0.5,
+    fillOpacity = 0.65,
+    fillColor = ~colorNumeric("YlOrRd", manzanas_caba$cantidad)(cantidad),
+    highlightOptions = highlightOptions(color = "white", weight = 2,
+      bringToFront = TRUE),
+     label = labels,
+  labelOptions = labelOptions(
+    style = list("font-weight" = "normal", padding = "2px 5px"),
+    textsize = "10px",
+    direction = "top"))%>%
+addLegend("bottomright", pal=paleta, values = ~cantidad,
+    title = "Gastronomía y Hotelería",
+    labFormat = labelFormat(suffix = " registros"),
+    opacity = 0.65)
+```
+
