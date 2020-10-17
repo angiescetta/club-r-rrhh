@@ -52,9 +52,9 @@ ggplot()+
        fill="Comuna")
 ```
 
-Bueno, este formato es una de los posibles para importar datos geo, pero también hay otras formas. Por ejemplo a partir de un dataset tradicional, transformando datos que no son geo pero que tienen una conexión con el territorio, es decir columnas con las coordenadas X e Y:
+Bueno, este formato es una de los posibles para importar datos geo, pero también hay otras formas. Por ejemplo a partir de un dataset tradicional, transformando datos que no son geo pero que tienen una conexión con el territorio, es decir columnas con las coordenadas X e Y.
 
-En este caso vamos a utilizar un CSV con la ubicación exacta (X e Y) de los usos del suelo referentes a gastronomía y hotelería en la Ciudad. Este dataset fue generado a partir del dataset de Relevamiento de Usos del Suelo realizado en 2017 y publicado por el GCBA en BA Data: https://data.buenosaires.gob.ar/dataset/relevamiento-usos-suelo
+En este caso vamos a utilizar un CSV con la ubicación exacta (X e Y) de los usos del suelo referentes a gastronomía y hotelería en la Ciudad. Este dataset fue generado a partir del Relevamiento de Usos del Suelo realizado en 2017 y publicado por el GCBA en BA Data: https://data.buenosaires.gob.ar/dataset/relevamiento-usos-suelo
 
 ```{r warning=FALSE, results="hide", error=FALSE, message=FALSE}
 gastronomia_hoteleria <- read.csv("data/gastronomia_hoteleria.csv", encoding = 'UTF-8')
@@ -72,9 +72,9 @@ Efectivamente es un simple dataset, pero veamos que información contiene:
 head(gastronomia_hoteleria)
 ```
 
-Vemos que tenemos **2 columnas de datos que nos permitiran territorializar la información: las coordenadas X e Y**. Pero, ¿Qué significan esas coordenadas? ¿Por qué son tan importantes?
+Vemos que tenemos **2 columnas de datos que nos permitiran territorializar la información: las coordenadas X e Y**.
 
-Bueno, como la base de datos es un CSV común y corriente, primero utilicemos nuestro amigo `ggplot()` pero esta vez junto a `geom_point()` para ver que forma tiene la data:
+Para mapear esta inforamción sin hacer ninguna transformación, como la base de datos es un CSV común y corriente, primero utilicemos nuestro amigo `ggplot()` pero esta vez junto a `geom_point()` para ver que forma tiene la data:
 
 ```{r}
 ggplot()+
@@ -208,6 +208,8 @@ barrios_caba <- barrios_caba %>%
          cant_km2=round(cantidad/superficie_km2, 0))
 ```
 
+Y hagamos el mapa de densidad:
+
 ```{r message=FALSE, warning=FALSE}
 ggplot()+
   geom_sf(data=barrios_caba, aes(fill=cant_km2)) +
@@ -220,6 +222,8 @@ ggplot()+
        caption= "Fuente de datos: https://data.buenosaires.gob.ar/")
 ```
 
+Si bien vemos que la zona de Microncentro es la que tiene la mayor cantidad de locales por km2, veamos que barrios están por encima de la media y cuales por debajo:
+
 ```{r message=FALSE, warning=FALSE}
 barrios_caba <- barrios_caba %>%
   mutate(categoria=ifelse(cant_km2>mean(cant_km2),"MAYOR DENSIDAD","MENOR DENSIDAD"))
@@ -230,6 +234,10 @@ ggplot()+
   labs(title="Barrios de CABA según densidad de Gastronomía y Hotelería")
 ```
 
+Aparece un nuevo barrio, Floresta, que si bien no resaltaba en el mapa, está por encima de la media.
+
+Ahora aprovechemos el potencial de `ggmap()` para poner un mapa de fondo y poder mejorar la visualización:
+
 ```{r message=FALSE, warning=FALSE}
 CABA <- get_stamenmap(bbox = make_bbox(gastronomia_hoteleria$X, gastronomia_hoteleria$Y), #Descargar mapa
                       maptype = "toner",
@@ -238,8 +246,10 @@ CABA <- get_stamenmap(bbox = make_bbox(gastronomia_hoteleria$X, gastronomia_hote
 ggmap(CABA)+
   geom_sf(data=barrios_caba, aes(fill=cant_km2), color=NA, alpha=0.8, inherit.aes = FALSE)+
   geom_sf_text(data=barrios_caba, aes(label = barrio), size=2, colour = "black", inherit.aes = FALSE)+
-  scale_fill_viridis_c(direction=-1)
+  scale_fill_viridis_c(direction=-1, breaks=c(0, 50, 100, 150, 200, 250, 300))
 ```
+
+Y probemos a ver que pasa si "disolvemos" los polígonos y pasamos la unidad de análisis de barrio a comuna:
 
 ```{r message=FALSE, warning=FALSE}
 comunas_caba <- barrios_caba %>%
@@ -253,8 +263,12 @@ comunas_caba <- barrios_caba %>%
 ggmap(CABA)+
   geom_sf(data=comunas_caba, aes(fill=cant_km2), color=NA, alpha=0.8, inherit.aes = FALSE)+
   geom_sf_text(data=comunas_caba, aes(label = comuna), size=3.5, colour = "black", inherit.aes = FALSE)+
-  scale_fill_viridis_c(direction=-1)
+  scale_fill_viridis_c(direction=-1, breaks=c(0,25,50,75,100,125,150))
 ```
+
+En el mapa se puede ver que, si bien San Nicolás es el barrio con más locales por m2, al calcularlo por comuna aparece la 3 como la más densa. Sin embargo, teniendo en cuenta que en la comuna 1 se está incluyendo toda la reserva ecológica, es probable que ahí esté el problema.
+
+Probemos que pasa si vemos nuestros datos en un mapa interactivo:
 
 ```{r}
 paleta <- colorNumeric(
@@ -286,6 +300,8 @@ addLegend("bottomright", pal=paleta, values = ~cant_km2,
     opacity = 0.65)
 ```
 
+A ver veamos la relación entre cantidad absoluta y densidad, para eso utilicemos los centroides:
+
 ```{r}
 centroide <- barrios_caba %>%
   st_centroid()
@@ -298,7 +314,7 @@ ggplot()+
   scale_color_viridis_c(direction = -1)
 ```
 
-intersectar con más datos de todo amba:
+Ahora metamonos en detalle en le barrio más denso de gastronomía y hotelería: San Nicolás
 
 ```{r message=FALSE, warning=FALSE}
 gastronomia_hoteleria_geo <- gastronomia_hoteleria_geo %>%
@@ -363,3 +379,56 @@ addLegend("bottomright", pal=paleta, values = ~cantidad,
     opacity = 0.65)
 ```
 
+```{r message=FALSE, warning=FALSE}
+barrio_SN <- barrios_caba %>%
+  filter(barrio=="SAN NICOLAS")
+```
+
+```{r message=FALSE, warning=FALSE}
+barrio_SN <- barrio_SN %>%
+  st_make_grid(cellsize = 0.003) %>%
+  st_intersection(barrio_SN) %>%
+  st_sf()%>%
+  mutate(id = row_number())
+```
+```{r message=FALSE, warning=FALSE}
+ggplot()+
+  geom_sf(data=barrio_SN)
+```
+
+```{r message=FALSE, warning=FALSE}
+barrio_SN <- barrio_SN %>%
+  st_join(gastronomia_hoteleria_geo) %>%
+  group_by(id) %>%
+  summarise(cantidad=n())
+```
+
+```{r message=FALSE, warning=FALSE}
+paleta <- colorNumeric(
+  palette = "YlOrRd",
+  domain = barrio_SN$cantidad)
+
+labels <- sprintf(
+  "<strong>%s</strong> <br/>%g registros",
+  "Gastronomia y Hoteleria", barrio_SN$cantidad) %>% lapply(htmltools::HTML)
+
+leaflet(barrio_SN) %>%
+  addTiles() %>%
+addProviderTiles(providers$CartoDB) %>%
+addPolygons(color = "#444444",
+            weight = 1,
+            smoothFactor = 0.5,
+    fillOpacity = 0.65,
+    fillColor = ~colorNumeric("YlOrRd", barrio_SN$cantidad)(cantidad),
+    highlightOptions = highlightOptions(color = "white", weight = 2,
+      bringToFront = TRUE),
+     label = labels,
+  labelOptions = labelOptions(
+    style = list("font-weight" = "normal", padding = "2px 5px"),
+    textsize = "10px",
+    direction = "top"))%>%
+addLegend("bottomright", pal=paleta, values = ~cantidad,
+    title = "Gastronomía y Hotelería",
+    labFormat = labelFormat(suffix = " registros"),
+    opacity = 0.65)
+```
